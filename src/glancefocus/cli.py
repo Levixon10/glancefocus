@@ -247,7 +247,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("doctor", help="check camera, window manager, keyboard access and calibration")
     c = sub.add_parser("calibrate", help="look at dots on each monitor to train the gaze model")
-    c.add_argument("--points", type=int, choices=(5, 9, 13), default=9, help="dots per monitor (default 9)")
+    c.add_argument("--points", type=int, choices=(5, 9, 13, 15), default=9,
+                   help="dots per monitor (default 9; 15 adds columns for better left/right accuracy)")
     c.add_argument("--monitor", action="append", help="only calibrate this monitor (repeatable)")
     c.add_argument("--save-samples", metavar="FILE.npz", help="also save raw samples (for tuning/bug reports)")
     c.add_argument("--from-samples", metavar="FILE.npz", help="refit from previously saved samples, no camera")

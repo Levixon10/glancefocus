@@ -66,3 +66,36 @@ def test_terminal_running_glancefocus_is_still_a_target():
 
     kept = visible_targets([w("glancefocus -v run"), w("~/projects/glancefocus"), *(w(t) for t in OWN_WINDOW_TITLES)])
     assert [x.title for x in kept] == ["glancefocus -v run", "~/projects/glancefocus"]
+
+
+def test_grid_15_has_five_columns():
+    from glancefocus.calibration import GRIDS
+
+    assert len(GRIDS[15]) == 15 and len({x for x, _ in GRIDS[15]}) == 5
+
+
+def test_per_monitor_refiner_routing_and_roundtrip(tmp_path):
+    import numpy as np
+
+    from glancefocus.calibration import Calibration
+    from glancefocus.mapping import GazeMapper
+
+    def const_mapper(px, py):
+        n = 18  # MODEL_FEATURES; coef only on the intercept → constant prediction
+        from glancefocus.gaze.features import CORE_FEATURES, MODEL_FEATURES
+
+        terms = 1 + len(MODEL_FEATURES) + len(CORE_FEATURES) * (len(CORE_FEATURES) + 1) // 2
+        coef = np.zeros((terms, 2))
+        coef[0] = (px, py)
+        return GazeMapper(np.zeros(len(MODEL_FEATURES)), np.ones(len(MODEL_FEATURES)), coef, 1.0), n
+
+    joint, _ = const_mapper(100, 100)  # lands on monitor "a"
+    refined, _ = const_mapper(42, 7)
+    layout = [{"name": "a", "x": 0, "y": 0, "w": 1000, "h": 500}, {"name": "b", "x": 1000, "y": 0, "w": 800, "h": 500}]
+    cal = Calibration(joint, 100.0, {"a": 90.0, "b": 100.0}, layout, "test", 10, refiners={"a": refined})
+    feats = np.zeros(22)
+    assert cal.predict(feats) == (42.0, 7.0)
+    assert cal.monitor_for(5000, 100) == "b"
+    path = tmp_path / "cal.json"
+    cal.save(path)
+    assert Calibration.load(path).predict(feats) == (42.0, 7.0)

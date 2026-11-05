@@ -29,6 +29,12 @@ GRIDS: dict[int, list[tuple[float, float]]] = {
     9: [(x, _COL[0]) for x in _ROW] + [(x, _COL[1]) for x in reversed(_ROW)] + [(x, _COL[2]) for x in _ROW],
 }
 GRIDS[13] = GRIDS[9] + [(0.28, 0.29), (0.72, 0.29), (0.72, 0.71), (0.28, 0.71)]
+# Five columns: side-by-side tiled windows need left/right accuracy most.
+_ROW5 = (0.06, 0.28, 0.5, 0.72, 0.94)
+GRIDS[15] = [(x, _COL[0]) for x in _ROW5] + [(x, _COL[1]) for x in reversed(_ROW5)] + [(x, _COL[2]) for x in _ROW5]
+# A monitor gets its own model only with enough dots to cross-validate it, and only if it is clearly better.
+REFINE_MIN_DOTS = 5
+REFINE_MIN_GAIN = 0.9
 
 KEY_SPACE, KEY_ESC, KEY_ENTER = 32, 27, 13
 MIN_SAMPLES_PER_DOT = 12
@@ -47,9 +53,24 @@ class Calibration:
     platform: str
     samples: int
     created: str = field(default_factory=lambda: datetime.now(UTC).isoformat(timespec="seconds"))
+    # Optional per-monitor models: the joint mapper picks the monitor, the refiner places the point on it.
+    refiners: dict[str, GazeMapper] = field(default_factory=dict)
+
+    def monitor_for(self, x: float, y: float) -> str | None:
+        """Calibrated monitor containing (x, y), else the nearest one."""
+        best, best_d = None, math.inf
+        for m in self.layout:
+            dx = max(m["x"] - x, 0.0, x - (m["x"] + m["w"]))
+            dy = max(m["y"] - y, 0.0, y - (m["y"] + m["h"]))
+            d = math.hypot(dx, dy)
+            if d < best_d:
+                best, best_d = m["name"], d
+        return best
 
     def predict(self, features: np.ndarray) -> tuple[float, float]:
-        return self.mapper.predict(features)
+        point = self.mapper.predict(features)
+        refiner = self.refiners.get(self.monitor_for(*point)) if self.refiners else None
+        return refiner.predict(features) if refiner is not None else point
 
     def layout_matches(self, monitors: list[Monitor]) -> bool:
         return _layout(monitors) == self.layout
@@ -65,6 +86,7 @@ class Calibration:
             "per_monitor_px": self.per_monitor_px,
             "layout": self.layout,
             "mapper": self.mapper.to_dict(),
+            "refiners": {name: m.to_dict() for name, m in self.refiners.items()},
         }
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, indent=1))
@@ -77,7 +99,8 @@ class Calibration:
             raise ValueError("calibration file is from an older version of glancefocus; run `glancefocus calibrate` "
                              "again (or `glancefocus calibrate --from-samples FILE.npz` if you saved samples)")
         mapper = GazeMapper.from_dict(data["mapper"])
-        if not set(mapper.inputs) <= set(FEATURE_NAMES):
+        refiners = {name: GazeMapper.from_dict(d) for name, d in data.get("refiners", {}).items()}
+        if not all(set(m.inputs) <= set(FEATURE_NAMES) for m in (mapper, *refiners.values())):
             raise ValueError("calibration was made with different gaze features; run `glancefocus calibrate` again")
         return cls(
             mapper=mapper,
@@ -87,6 +110,7 @@ class Calibration:
             platform=data["platform"],
             samples=int(data["samples"]),
             created=data["created"],
+            refiners=refiners,
         )
 
 
@@ -223,6 +247,20 @@ def fit(data: CalibrationData, monitors: list[Monitor], platform_name: str) -> t
     per_monitor = {
         name: float(math.sqrt(np.mean(report.cv_errors[names == name] ** 2))) for name in sorted(set(names))
     }
+    refiners: dict[str, GazeMapper] = {}
+    all_names = np.array(data.monitors)
+    for name in per_monitor:
+        sel = all_names == name
+        if len(np.unique(groups[sel])) < REFINE_MIN_DOTS:
+            continue
+        try:
+            sub, sub_report = GazeMapper.fit(x[sel], y[sel], groups[sel])
+        except (ValueError, np.linalg.LinAlgError):
+            continue
+        log.debug("%s: joint model %.0f px, own model %.0f px", name, per_monitor[name], sub_report.cv_rmse)
+        if sub_report.cv_rmse < REFINE_MIN_GAIN * per_monitor[name]:
+            refiners[name] = sub
+            per_monitor[name] = sub_report.cv_rmse
     cal = Calibration(
         mapper=mapper,
         accuracy_px=report.cv_rmse,
@@ -230,5 +268,8 @@ def fit(data: CalibrationData, monitors: list[Monitor], platform_name: str) -> t
         layout=_layout(monitors),
         platform=platform_name,
         samples=len(x),
+        refiners=refiners,
     )
+    if refiners:
+        cal.accuracy_px = float(max(per_monitor.values()))
     return cal, report
