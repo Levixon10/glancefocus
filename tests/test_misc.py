@@ -54,3 +54,15 @@ def test_samples_roundtrip(tmp_path):
     back = load_samples(path)
     assert back.targets == data.targets and back.groups == data.groups and back.monitors == data.monitors
     np.testing.assert_array_equal(np.array(back.features), np.array(data.features))
+
+
+def test_terminal_running_glancefocus_is_still_a_target():
+    # Regression: terminals titled "glancefocus -v run" were filtered out as our own windows.
+    from glancefocus.app import OWN_WINDOW_TITLES, visible_targets
+    from glancefocus.geometry import Window
+
+    def w(title):
+        return Window(title, title, "ghostty", Rect(0, 0, 100, 100), "m")
+
+    kept = visible_targets([w("glancefocus -v run"), w("~/projects/glancefocus"), *(w(t) for t in OWN_WINDOW_TITLES)])
+    assert [x.title for x in kept] == ["glancefocus -v run", "~/projects/glancefocus"]

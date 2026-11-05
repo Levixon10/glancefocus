@@ -23,7 +23,13 @@ from glancefocus.smoothing import OneEuro2D
 
 log = logging.getLogger(__name__)
 
-OWN_WINDOW_PREFIX = "glancefocus"
+# Exact titles of the windows glancefocus itself creates. Match exactly: a terminal running
+# `glancefocus run` is often titled "glancefocus run" and must stay a valid target.
+OWN_WINDOW_TITLES = frozenset({"glancefocus debug", "glancefocus-calibration"})
+
+
+def visible_targets(windows: list[Window]) -> list[Window]:
+    return [w for w in windows if w.title not in OWN_WINDOW_TITLES]
 WINDOW_REFRESH_S = 0.15
 MONITOR_REFRESH_S = 3.0
 
@@ -125,7 +131,7 @@ class Runner:
                         monitors = self.platform.monitors()
                         next_monitors = now + MONITOR_REFRESH_S
                     if now >= next_windows:
-                        windows = [w for w in self.platform.windows() if not w.title.startswith(OWN_WINDOW_PREFIX)]
+                        windows = visible_targets(self.platform.windows())
                         next_windows = now + WINDOW_REFRESH_S
                 except PlatformError as e:
                     log.warning("window manager query failed: %s", e)
