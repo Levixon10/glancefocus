@@ -39,3 +39,18 @@ def test_one_euro_converges_and_smooths():
     for i in range(100):
         v = g(5.0, i * 0.05)
     assert abs(v - 5.0) < 1e-6
+
+
+def test_samples_roundtrip(tmp_path):
+    import numpy as np
+
+    from glancefocus.calibration import CalibrationData, load_samples, save_samples
+
+    data = CalibrationData()
+    for i in range(4):
+        data.add(np.arange(3.0) + i, (10.0 * i, 5.0), i // 2, "HDMI-A-1" if i < 2 else "eDP-1")
+    path = tmp_path / "s.npz"
+    save_samples(data, path)
+    back = load_samples(path)
+    assert back.targets == data.targets and back.groups == data.groups and back.monitors == data.monitors
+    np.testing.assert_array_equal(np.array(back.features), np.array(data.features))

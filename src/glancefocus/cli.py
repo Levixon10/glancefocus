@@ -129,34 +129,34 @@ def cmd_doctor(args, settings: Settings) -> int:
 
 
 def cmd_calibrate(args, settings: Settings) -> int:
-    from glancefocus.calibration import CalibrationAborted, collect, fit
+    from glancefocus.calibration import CalibrationAborted, collect, fit, load_samples, save_samples
     from glancefocus.gaze.webcam import WebcamTracker
 
     platform = get_platform(args.platform)
     monitors = platform.monitors()
-    if args.monitor:
-        monitors = [m for m in monitors if m.name in args.monitor]
-        if not monitors:
-            print("no monitor matches --monitor", file=sys.stderr)
-            return 2
-    print(f"Calibrating {len(monitors)} monitor(s): {', '.join(m.name for m in monitors)} "
-          f"· {args.points} points each · about {len(monitors) * args.points * 2 + 5} s")
+    if args.from_samples:
+        data = load_samples(args.from_samples)
+        print(f"Refitting from {args.from_samples} ({len(data.features)} frames, no camera needed)")
+    else:
+        if args.monitor:
+            monitors = [m for m in monitors if m.name in args.monitor]
+            if not monitors:
+                print("no monitor matches --monitor", file=sys.stderr)
+                return 2
+        print(f"Calibrating {len(monitors)} monitor(s): {', '.join(m.name for m in monitors)} "
+              f"· {args.points} points each · about {round(len(monitors) * args.points * 2.6) + 5} s")
+        try:
+            with WebcamTracker(settings.camera, settings.camera_width, settings.camera_height,
+                               settings.camera_fps) as tracker:
+                data = collect(platform, tracker, monitors, points=args.points)
+        except CalibrationAborted:
+            print("calibration cancelled")
+            return 1
+        if args.save_samples:
+            save_samples(data, args.save_samples)
+            print(f"raw samples saved to {args.save_samples}")
 
-    try:
-        with WebcamTracker(settings.camera, settings.camera_width, settings.camera_height, settings.camera_fps) as tracker:
-            data = collect(platform, tracker, monitors, points=args.points)
-    except CalibrationAborted:
-        print("calibration cancelled")
-        return 1
-
-    if args.save_samples:
-        import numpy as np
-
-        np.savez(args.save_samples, features=np.array(data.features), targets=np.array(data.targets),
-                 groups=np.array(data.groups), monitors=np.array(data.monitors))
-        print(f"raw samples saved to {args.save_samples}")
-
-    cal, report = fit(data, platform.monitors() if args.monitor else monitors, platform.name)
+    cal, report = fit(data, platform.monitors(), platform.name)
     if args.monitor:
         print("note: --monitor calibrations only cover the chosen monitors")
     path = paths.calibration_file()
@@ -236,6 +236,7 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--points", type=int, choices=(5, 9, 13), default=9, help="dots per monitor (default 9)")
     c.add_argument("--monitor", action="append", help="only calibrate this monitor (repeatable)")
     c.add_argument("--save-samples", metavar="FILE.npz", help="also save raw samples (for tuning/bug reports)")
+    c.add_argument("--from-samples", metavar="FILE.npz", help="refit from previously saved samples, no camera")
     r = sub.add_parser("run", help="start moving focus to where you look")
     r.add_argument("--debug", action="store_true", help="show a live map of windows and your gaze point")
     r.add_argument("--dry-run", action="store_true", help="decide but don't actually change focus")

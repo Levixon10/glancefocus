@@ -31,6 +31,7 @@ GRIDS: dict[int, list[tuple[float, float]]] = {
 GRIDS[13] = GRIDS[9] + [(0.28, 0.29), (0.72, 0.29), (0.72, 0.71), (0.28, 0.71)]
 
 KEY_SPACE, KEY_ESC, KEY_ENTER = 32, 27, 13
+MIN_SAMPLES_PER_DOT = 12
 
 
 class CalibrationAborted(Exception):
@@ -109,13 +110,26 @@ class CalibrationData:
         self.monitors.append(monitor)
 
 
+def save_samples(data: CalibrationData, path) -> None:
+    np.savez(path, features=np.array(data.features), targets=np.array(data.targets),
+             groups=np.array(data.groups), monitors=np.array(data.monitors))
+
+
+def load_samples(path) -> CalibrationData:
+    with np.load(path, allow_pickle=False) as d:
+        data = CalibrationData()
+        for f, t, g, m in zip(d["features"], d["targets"], d["groups"], d["monitors"], strict=True):
+            data.add(np.asarray(f, float), (float(t[0]), float(t[1])), int(g), str(m))
+    return data
+
+
 def collect(
     platform: Platform,
     tracker,
     monitors: list[Monitor],
     points: int = 9,
     settle_s: float = 0.9,
-    collect_s: float = 1.0,
+    collect_s: float = 1.6,
 ) -> CalibrationData:
     """Run the on-screen calibration. Raises CalibrationAborted on Esc."""
     import cv2
@@ -169,7 +183,7 @@ def _show_target(ov, tracker, center, settle_s, collect_s, label) -> list[np.nda
     last_t = None
     t0 = time.monotonic()
     collect_until = t0 + settle_s + collect_s
-    hard_stop = collect_until + 1.5  # extra time if the face was lost (blinks, glare)
+    hard_stop = collect_until + 2.0  # extra time if the face was lost (blinks, glare)
     while True:
         now = time.monotonic()
         elapsed = now - t0
@@ -190,7 +204,7 @@ def _show_target(ov, tracker, center, settle_s, collect_s, label) -> list[np.nda
             cv2.circle(img, center, r_small * 2, (70, 200, 120), -1, cv2.LINE_AA)
             cv2.ellipse(img, center, (r_small * 3, r_small * 3), -90, 0, 360 * k, (255, 255, 255), max(2, int(3 * u)), cv2.LINE_AA)
             cv2.circle(img, center, max(2, r_small // 2), (255, 255, 255), -1, cv2.LINE_AA)
-            if (now >= collect_until and len(samples) >= 8) or now >= hard_stop:
+            if (now >= collect_until and len(samples) >= MIN_SAMPLES_PER_DOT) or now >= hard_stop:
                 return samples
         if ov.show(img, 10) == KEY_ESC:
             return None

@@ -25,7 +25,8 @@ from glancefocus.gaze.features import CORE_FEATURES, FEATURE_NAMES
 
 DEFAULT_LAMBDAS = (1e-2, 0.1, 1.0, 10.0, 100.0, 1e3, 1e4)
 Z_CLIP = 4.0
-OUTLIER_Z = 5.0
+# Only reject truly broken frames: on real webcam data, aggressive rejection made fits worse.
+OUTLIER_Z = 30.0
 
 
 def _core_index(feature_names) -> list[int]:
