@@ -1,0 +1,67 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "glancefocus"
+version = "0.1.0"
+description = "Focus follows your eyes: switch the focused window by looking at it, using an ordinary webcam."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Harsh Singh" }]
+requires-python = ">=3.11"
+keywords = ["eye-tracking", "gaze", "window-manager", "focus", "multi-monitor", "hyprland", "accessibility", "webcam"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: X11 Applications",
+  "Environment :: Win32 (MS Windows)",
+  "Environment :: MacOS X",
+  "Intended Audience :: End Users/Desktop",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: MacOS",
+  "Programming Language :: Python :: 3",
+  "Topic :: Desktop Environment :: Window Managers",
+  "Topic :: Scientific/Engineering :: Image Recognition",
+]
+dependencies = [
+  "mediapipe>=0.10.14",
+  "opencv-python>=4.8",
+  "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+# Keyboard activity for the "don't switch while I'm typing" lock.
+linux = ["evdev>=1.6; sys_platform == 'linux'"]
+x11 = ["python-xlib>=0.33; sys_platform == 'linux'", "evdev>=1.6; sys_platform == 'linux'"]
+windows = ["pynput>=1.7; sys_platform == 'win32'"]
+macos = [
+  "pyobjc-framework-Quartz>=10; sys_platform == 'darwin'",
+  "pyobjc-framework-ApplicationServices>=10; sys_platform == 'darwin'",
+  "pyobjc-framework-Cocoa>=10; sys_platform == 'darwin'",
+  "pynput>=1.7; sys_platform == 'darwin'",
+]
+dev = ["pytest>=7", "ruff>=0.5"]
+
+[project.scripts]
+glancefocus = "glancefocus.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Levixon10/glancefocus"
+Issues = "https://github.com/Levixon10/glancefocus/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/glancefocus"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501"]

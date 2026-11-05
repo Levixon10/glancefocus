@@ -1,0 +1,22 @@
+# systemd user service for glancefocus.
+#
+#   mkdir -p ~/.config/systemd/user
+#   cp contrib/glancefocus.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now glancefocus
+#
+# Requires a graphical session that exports its environment to systemd
+# (Hyprland via uwsm, GNOME, KDE, and most others do).
+
+[Unit]
+Description=glancefocus - focus follows your eyes
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/glancefocus run
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target
