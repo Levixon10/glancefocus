@@ -36,9 +36,14 @@ FEATURE_NAMES = (
     *BLENDSHAPES,
     "head_fx", "head_fy", "head_roll", "head_tx", "head_ty", "head_tz",
 )
-# Features that also get pairwise products in the calibration model.
-CORE_FEATURES = ("gaze_h", "gaze_v", "head_fx", "head_fy", "head_tx", "head_ty")
 N_FEATURES = len(FEATURE_NAMES)
+
+# What the calibration model actually uses. Head *position* (tx/ty/tz) is recorded but
+# left out: it helps within one sitting, but nobody sits in exactly the same spot twice,
+# and on real two-session data including it made errors 3-4x worse in the other session.
+MODEL_FEATURES = tuple(n for n in FEATURE_NAMES if n not in ("head_tx", "head_ty", "head_tz"))
+# Features that also get pairwise products in the calibration model.
+CORE_FEATURES = ("gaze_h", "gaze_v", "head_fx", "head_fy")
 BLINK_THRESHOLD = 0.5
 
 

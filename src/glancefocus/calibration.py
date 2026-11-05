@@ -19,7 +19,7 @@ from glancefocus.platforms.base import Platform
 
 log = logging.getLogger(__name__)
 
-CALIBRATION_VERSION = 1
+CALIBRATION_VERSION = 2  # 2: model no longer uses head position
 
 _ROW = (0.06, 0.5, 0.94)
 _COL = (0.08, 0.5, 0.92)
@@ -74,9 +74,10 @@ class Calibration:
     def load(cls, path: Path) -> Calibration:
         data = json.loads(path.read_text())
         if data.get("version") != CALIBRATION_VERSION:
-            raise ValueError("calibration file is from an incompatible version; run `glancefocus calibrate` again")
+            raise ValueError("calibration file is from an older version of glancefocus; run `glancefocus calibrate` "
+                             "again (or `glancefocus calibrate --from-samples FILE.npz` if you saved samples)")
         mapper = GazeMapper.from_dict(data["mapper"])
-        if tuple(mapper.feature_names) != FEATURE_NAMES:
+        if not set(mapper.inputs) <= set(FEATURE_NAMES):
             raise ValueError("calibration was made with different gaze features; run `glancefocus calibrate` again")
         return cls(
             mapper=mapper,

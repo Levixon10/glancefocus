@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from glancefocus.gaze.features import CORE_FEATURES, FEATURE_NAMES
+from glancefocus.gaze.features import CORE_FEATURES, FEATURE_NAMES, MODEL_FEATURES
 
 DEFAULT_LAMBDAS = (1e-2, 0.1, 1.0, 10.0, 100.0, 1e3, 1e4)
 Z_CLIP = 4.0
@@ -29,8 +29,13 @@ Z_CLIP = 4.0
 OUTLIER_Z = 30.0
 
 
-def _core_index(feature_names) -> list[int]:
-    return [list(feature_names).index(name) for name in CORE_FEATURES if name in feature_names]
+def _core_index(inputs) -> list[int]:
+    return [list(inputs).index(name) for name in CORE_FEATURES if name in inputs]
+
+
+def _columns(inputs) -> list[int]:
+    """Column indices of `inputs` in the full feature vector (FEATURE_NAMES order)."""
+    return [FEATURE_NAMES.index(name) for name in inputs]
 
 
 def expand(z: np.ndarray, core: list[int]) -> np.ndarray:
@@ -103,7 +108,7 @@ class GazeMapper:
     std: np.ndarray
     coef: np.ndarray  # (n_terms, 2)
     lam: float
-    feature_names: tuple[str, ...] = FEATURE_NAMES
+    inputs: tuple[str, ...] = MODEL_FEATURES  # which features (by name) the model uses
 
     # ---- fitting ---------------------------------------------------------
     @classmethod
@@ -114,16 +119,17 @@ class GazeMapper:
         groups: np.ndarray,
         lambdas=DEFAULT_LAMBDAS,
         folds: int = 10,
-        feature_names: tuple[str, ...] = FEATURE_NAMES,
+        inputs: tuple[str, ...] = MODEL_FEATURES,
     ) -> tuple[GazeMapper, FitReport]:
-        x = np.asarray(x, float)
+        """x holds full feature vectors (FEATURE_NAMES order); only `inputs` are used."""
+        x = np.asarray(x, float)[:, _columns(inputs)]
         y = np.asarray(y, float)
         groups = np.asarray(groups)
         if len(x) < 10 or len(np.unique(groups)) < 3:
             raise ValueError("not enough calibration data (need at least 3 targets and 10 samples)")
         inliers = inlier_mask(x, groups)
         x, y, groups = x[inliers], y[inliers], groups[inliers]
-        core = _core_index(feature_names)
+        core = _core_index(inputs)
         masks = _folds(groups, folds)
 
         best: tuple[float, float, np.ndarray] | None = None
@@ -142,12 +148,12 @@ class GazeMapper:
         lam, rmse, errors = best
         mean, std = _standardise(x)
         coef = _ridge(expand((x - mean) / std, core), y, lam)
-        return cls(mean, std, coef, lam, tuple(feature_names)), FitReport(lam, rmse, inliers, errors)
+        return cls(mean, std, coef, lam, tuple(inputs)), FitReport(lam, rmse, inliers, errors)
 
     # ---- prediction ------------------------------------------------------
     def predict_many(self, x: np.ndarray) -> np.ndarray:
-        x = np.atleast_2d(np.asarray(x, float))
-        return expand((x - self.mean) / self.std, _core_index(self.feature_names)) @ self.coef
+        x = np.atleast_2d(np.asarray(x, float))[:, _columns(self.inputs)]
+        return expand((x - self.mean) / self.std, _core_index(self.inputs)) @ self.coef
 
     def predict(self, features: np.ndarray) -> tuple[float, float]:
         p = self.predict_many(features)[0]
@@ -161,11 +167,11 @@ class GazeMapper:
             "std": np.where(np.isinf(self.std), 0.0, self.std).tolist(),
             "coef": self.coef.tolist(),
             "lam": self.lam,
-            "feature_names": list(self.feature_names),
+            "inputs": list(self.inputs),
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> GazeMapper:
         std = np.array(d["std"], float)
         std[std == 0] = np.inf
-        return cls(np.array(d["mean"]), std, np.array(d["coef"]), float(d["lam"]), tuple(d["feature_names"]))
+        return cls(np.array(d["mean"]), std, np.array(d["coef"]), float(d["lam"]), tuple(d["inputs"]))

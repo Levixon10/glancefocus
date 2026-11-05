@@ -82,3 +82,13 @@ def test_inlier_mask_keeps_every_dot():
     keep = inlier_mask(x, g)
     for group in np.unique(g):
         assert keep[g == group].sum() >= 3
+
+
+def test_head_position_is_ignored():
+    # Sitting a bit further left/right/back must not move the gaze point.
+    x, y, g = synthetic(n_targets=8)
+    mapper, _ = GazeMapper.fit(x, y, g)
+    moved = x[:5].copy()
+    for name in ("head_tx", "head_ty", "head_tz"):
+        moved[:, FEATURE_NAMES.index(name)] += 25.0
+    np.testing.assert_allclose(mapper.predict_many(moved), mapper.predict_many(x[:5]))
