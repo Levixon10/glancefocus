@@ -107,6 +107,8 @@ class Runner:
             last_cursor = None
             last_mouse = -math.inf
             switches = 0
+            next_trace = 0.0
+            trace = log.isEnabledFor(logging.DEBUG)
             period = 1.0 / max(s.poll_hz, 1.0)
 
             while self.running:
@@ -143,6 +145,17 @@ class Runner:
                 decision = None
                 if not self.paused:
                     decision = policy.update(now, point, windows, monitors, keyboard.last_key, last_mouse)
+                if trace and now >= next_trace:
+                    next_trace = now + 1.0
+                    obs = sample.observation if sample is not None else None
+                    res = policy.last_resolution
+                    where = f"({point[0]:.0f},{point[1]:.0f}) on {res.monitor.name if res.monitor else 'no monitor'}" \
+                        if point else "none"
+                    log.debug("gaze %s · face %s · cam %.0f fps · target %s%s · blocked %s",
+                              where, "blink" if obs and obs.blink else ("yes" if obs else "NO"), tracker.fps,
+                              res.kind, f" {(res.window.app or res.window.title)[:24]}" if res.window else "",
+                              policy.blocked_by or "-")
+
                 if decision is not None:
                     w = decision.window
                     log.info("focus → %s · %s%s", w.app or "?", w.title[:60], " (dry run)" if self.dry_run else "")
