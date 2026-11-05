@@ -99,4 +99,10 @@ class DebugView:
             cv2.putText(img, line, (2 * pad + self.cam_w, top + 20 + 22 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.52, TEXT, 1, cv2.LINE_AA)
 
         cv2.imshow(TITLE, img)
-        return cv2.waitKey(1) & 0xFF
+        key = cv2.waitKey(1) & 0xFF
+        try:
+            if cv2.getWindowProperty(TITLE, cv2.WND_PROP_VISIBLE) < 1:
+                return 27  # window was closed: treat like Esc
+        except cv2.error:
+            return 27
+        return key

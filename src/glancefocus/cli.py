@@ -25,6 +25,12 @@ def _plain_marks() -> None:
         OK, BAD, WARN = "[ok]", "[!!]", "[--]"
 
 
+def _bad_monitors(cal, monitors) -> list[str]:
+    """Monitors whose calibration error is more than a third of their width: unusable."""
+    widths = {m.name: m.rect.w for m in monitors}
+    return [n for n, err in cal.per_monitor_px.items() if n in widths and err > widths[n] / 3]
+
+
 # ---- commands -------------------------------------------------------------------
 
 def cmd_windows(args, settings: Settings) -> int:
@@ -161,6 +167,13 @@ def cmd_calibrate(args, settings: Settings) -> int:
         mon = next((m for m in monitors if m.name == name), None)
         rel = f" ≈ {100 * err / mon.rect.w:.0f}% of its width" if mon else ""
         print(f"  {name:<14} {err:6.0f} px{rel}")
+    bad = _bad_monitors(cal, monitors)
+    if bad:
+        print(f"\n{WARN} calibration failed on {', '.join(bad)}: the error is too large to be useful. Usually the camera"
+              "\n    lost your eyes while you looked there (lighting, glasses glare, or the screen is far off to the side"
+              "\n    of the camera). Try again with more light; if it keeps failing, re-run with"
+              "\n    `--save-samples samples.npz` and attach the file to an issue.")
+        return 1
     print("\nNext: `glancefocus run --debug --dry-run` to watch the gaze point without moving focus.")
     return 0
 
@@ -175,6 +188,11 @@ def cmd_run(args, settings: Settings) -> int:
         return 2
     calibration = Calibration.load(path)
     platform = get_platform(args.platform)
+    bad = _bad_monitors(calibration, platform.monitors())
+    if bad:
+        print(f"{WARN} the saved calibration is unusable on {', '.join(bad)} "
+              f"({', '.join(f'{calibration.per_monitor_px[n]:.0f}px' for n in bad)} error). "
+              "Run `glancefocus calibrate` again.", file=sys.stderr)
     return Runner(settings, platform, calibration, dry_run=args.dry_run, debug=args.debug).run()
 
 

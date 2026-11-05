@@ -164,7 +164,7 @@ class Runner:
                         f"blocked: {policy.blocked_by or '-'}   switches: {switches}",
                         f"keyboard lock: {'on' if keyboard.available else 'OFF'}   "
                         f"{'PAUSED' if self.paused else ('DRY RUN' if self.dry_run else 'LIVE')}",
-                        "keys:  p pause   d dry-run   q quit",
+                        "keys (in this window):  p pause   d dry-run   q/Esc quit",
                     ]
                     key = view.draw(monitors, windows, point, raw, policy, tracker.latest_frame(),
                                     obs.eye_points if obs else None, status)

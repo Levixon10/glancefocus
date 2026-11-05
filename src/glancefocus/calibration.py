@@ -201,9 +201,12 @@ def fit(data: CalibrationData, monitors: list[Monitor], platform_name: str) -> t
     y = np.array(data.targets)
     groups = np.array(data.groups)
     mapper, report = GazeMapper.fit(x, y, groups)
-    names = np.array(data.monitors)
+    names = np.array(data.monitors)[report.inliers]
+    dropped = int((~report.inliers).sum())
+    if dropped:
+        log.info("ignored %d of %d calibration frames as outliers", dropped, len(x))
     per_monitor = {
-        name: float(math.sqrt(np.mean(report.cv_errors[names == name] ** 2))) for name in sorted(set(data.monitors))
+        name: float(math.sqrt(np.mean(report.cv_errors[names == name] ** 2))) for name in sorted(set(names))
     }
     cal = Calibration(
         mapper=mapper,

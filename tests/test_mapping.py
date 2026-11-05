@@ -55,3 +55,30 @@ def test_too_little_data():
     x, y, g = synthetic(n_targets=2, per_target=3)
     with pytest.raises(ValueError):
         GazeMapper.fit(x, y, g)
+
+
+def test_spiky_feature_and_bad_frames_do_not_blow_up():
+    # Regression: a nearly constant feature that fires on one dot, plus a few garbage
+    # frames, used to produce errors of 100,000+ px.
+    x, y, g = synthetic(n_targets=18, per_target=10)
+    x[:, 10] = 1e-7 * np.random.default_rng(0).normal(size=len(x))
+    x[g == 4, 10] = 0.3
+    x[[5, 60, 120], 2] += 2.0
+    mapper, report = GazeMapper.fit(x, y, g)
+    assert report.cv_rmse < 150, report.cv_rmse
+    assert not report.inliers[[5, 60, 120]].any()
+    # Extreme inputs at run time stay on a sane scale.
+    wild = x[0].copy()
+    wild[10] = 50.0
+    px, py = mapper.predict(wild)
+    assert abs(px) < 20000 and abs(py) < 20000
+
+
+def test_inlier_mask_keeps_every_dot():
+    from glancefocus.mapping import inlier_mask
+
+    x, y, g = synthetic(n_targets=6, per_target=5)
+    x[g == 2] += np.random.default_rng(3).normal(0, 5, x[g == 2].shape)  # a whole noisy dot
+    keep = inlier_mask(x, g)
+    for group in np.unique(g):
+        assert keep[g == group].sum() >= 3

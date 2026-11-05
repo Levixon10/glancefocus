@@ -4,6 +4,15 @@ A ridge regression over standardised features plus pairwise products of the most
 informative ones. It is small (fits in milliseconds, no scikit-learn needed), and
 the regularisation strength is chosen by cross-validation that holds out whole
 calibration *targets*, which gives an honest estimate of on-screen error.
+
+Robustness matters more than flexibility here. Webcam features are noisy, some
+(blendshapes) are nearly constant for long stretches, and a single bad landmark
+frame can be far off. So:
+
+* standardised features are clipped to ±Z_CLIP, so a value far outside what was
+  seen in training cannot blow up the squared terms;
+* frames that disagree with the other frames recorded for the same dot are
+  dropped before fitting.
 """
 
 from __future__ import annotations
@@ -14,7 +23,9 @@ import numpy as np
 
 from glancefocus.gaze.features import CORE_FEATURES, FEATURE_NAMES
 
-DEFAULT_LAMBDAS = (1e-3, 1e-2, 0.1, 1.0, 10.0, 100.0, 1000.0)
+DEFAULT_LAMBDAS = (1e-2, 0.1, 1.0, 10.0, 100.0, 1e3, 1e4)
+Z_CLIP = 4.0
+OUTLIER_Z = 5.0
 
 
 def _core_index(feature_names) -> list[int]:
@@ -23,6 +34,7 @@ def _core_index(feature_names) -> list[int]:
 
 def expand(z: np.ndarray, core: list[int]) -> np.ndarray:
     """[1, z, products of core features] for each row of standardised features z."""
+    z = np.clip(z, -Z_CLIP, Z_CLIP)
     n = z.shape[0]
     c = z[:, core]
     iu = np.triu_indices(len(core))
@@ -44,11 +56,44 @@ def _folds(groups: np.ndarray, k: int, seed: int = 0) -> list[np.ndarray]:
     return [np.isin(groups, unique[i::k]) for i in range(k)]
 
 
+def _standardise(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    mean = x.mean(axis=0)
+    std = x.std(axis=0)
+    # Features that (almost) never vary carry no information; neutralise them.
+    std[std < 1e-6] = np.inf
+    return mean, std
+
+
+def inlier_mask(x: np.ndarray, groups: np.ndarray, min_keep: int = 3) -> np.ndarray:
+    """Drop frames that disagree with the other frames recorded for the same dot.
+
+    For each feature, the typical within-dot spread is the median (over dots) of the
+    per-dot MAD. A frame is an outlier if any feature is more than OUTLIER_Z typical
+    spreads from its dot's median.
+    """
+    keep = np.ones(len(x), dtype=bool)
+    unique = np.unique(groups)
+    medians = {g: np.median(x[groups == g], axis=0) for g in unique}
+    mads = np.array([np.median(np.abs(x[groups == g] - medians[g]), axis=0) for g in unique])
+    scale = 1.4826 * np.median(mads, axis=0)
+    scale[scale < 1e-9] = np.inf  # constant within dots: can't judge, don't reject on it
+    for g in unique:
+        idx = np.flatnonzero(groups == g)
+        dev = np.max(np.abs(x[idx] - medians[g]) / scale, axis=1)
+        bad = dev > OUTLIER_Z
+        if (~bad).sum() < min_keep:  # never drop a whole dot; keep its most typical frames
+            bad = np.ones(len(idx), dtype=bool)
+            bad[np.argsort(dev)[:min_keep]] = False
+        keep[idx[bad]] = False
+    return keep
+
+
 @dataclass
 class FitReport:
     lam: float
     cv_rmse: float  # root-mean-square on-screen error of held-out targets, in desktop px
-    cv_errors: np.ndarray = field(repr=False)  # per-sample held-out error, aligned with the input
+    inliers: np.ndarray = field(repr=False)  # bool mask over the input rows used for fitting
+    cv_errors: np.ndarray = field(repr=False)  # held-out error for each inlier row
 
 
 @dataclass
@@ -75,6 +120,8 @@ class GazeMapper:
         groups = np.asarray(groups)
         if len(x) < 10 or len(np.unique(groups)) < 3:
             raise ValueError("not enough calibration data (need at least 3 targets and 10 samples)")
+        inliers = inlier_mask(x, groups)
+        x, y, groups = x[inliers], y[inliers], groups[inliers]
         core = _core_index(feature_names)
         masks = _folds(groups, folds)
 
@@ -94,7 +141,7 @@ class GazeMapper:
         lam, rmse, errors = best
         mean, std = _standardise(x)
         coef = _ridge(expand((x - mean) / std, core), y, lam)
-        return cls(mean, std, coef, lam, tuple(feature_names)), FitReport(lam, rmse, errors)
+        return cls(mean, std, coef, lam, tuple(feature_names)), FitReport(lam, rmse, inliers, errors)
 
     # ---- prediction ------------------------------------------------------
     def predict_many(self, x: np.ndarray) -> np.ndarray:
@@ -109,7 +156,8 @@ class GazeMapper:
     def to_dict(self) -> dict:
         return {
             "mean": self.mean.tolist(),
-            "std": self.std.tolist(),
+            # JSON has no infinity; 0 marks a neutralised feature.
+            "std": np.where(np.isinf(self.std), 0.0, self.std).tolist(),
             "coef": self.coef.tolist(),
             "lam": self.lam,
             "feature_names": list(self.feature_names),
@@ -117,14 +165,6 @@ class GazeMapper:
 
     @classmethod
     def from_dict(cls, d: dict) -> GazeMapper:
-        return cls(
-            np.array(d["mean"]), np.array(d["std"]), np.array(d["coef"]), float(d["lam"]),
-            tuple(d["feature_names"]),
-        )
-
-
-def _standardise(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    mean = x.mean(axis=0)
-    std = x.std(axis=0)
-    std[std < 1e-9] = 1.0
-    return mean, std
+        std = np.array(d["std"], float)
+        std[std == 0] = np.inf
+        return cls(np.array(d["mean"]), std, np.array(d["coef"]), float(d["lam"]), tuple(d["feature_names"]))
