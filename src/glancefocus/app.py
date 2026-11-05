@@ -96,8 +96,14 @@ class Runner:
             view = DebugView()
 
         self._install_signals()
-        self._write_pid()
-        tracker.start()
+        try:
+            tracker.start()
+        except Exception:
+            keyboard.stop()
+            if view is not None:
+                view.close()
+            raise
+        self._write_pid()  # only once we really own the camera
         try:
             windows: list[Window] = []
             next_windows = next_monitors = 0.0

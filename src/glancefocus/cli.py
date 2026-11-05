@@ -186,6 +186,11 @@ def cmd_run(args, settings: Settings) -> int:
     if not path.exists():
         print("No calibration yet. Run `glancefocus calibrate` first.", file=sys.stderr)
         return 2
+    other = _running_pid()
+    if other:
+        print(f"glancefocus is already running (pid {other}). Stop it first (Ctrl+C in its terminal, "
+              f"or `kill {other}`); two instances can't share the camera.", file=sys.stderr)
+        return 1
     calibration = Calibration.load(path)
     platform = get_platform(args.platform)
     bad = _bad_monitors(calibration, platform.monitors())
@@ -194,6 +199,15 @@ def cmd_run(args, settings: Settings) -> int:
               f"({', '.join(f'{calibration.per_monitor_px[n]:.0f}px' for n in bad)} error). "
               "Run `glancefocus calibrate` again.", file=sys.stderr)
     return Runner(settings, platform, calibration, dry_run=args.dry_run, debug=args.debug).run()
+
+
+def _running_pid() -> int | None:
+    try:
+        pid = int(paths.pid_file().read_text().strip())
+        os.kill(pid, 0)
+    except (OSError, ValueError):
+        return None
+    return pid if pid != os.getpid() else None
 
 
 def cmd_toggle(args, settings: Settings) -> int:
@@ -269,5 +283,13 @@ def main(argv: list[str] | None = None) -> int:
     except PlatformError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
+    except Exception as e:
+        from glancefocus.gaze.webcam import CameraError
+
+        if isinstance(e, CameraError):
+            print(f"error: {e}. Is another app (or another glancefocus) using the camera? "
+                  "Try `--camera 1` if you have more than one.", file=sys.stderr)
+            return 2
+        raise
     except KeyboardInterrupt:
         return 130
